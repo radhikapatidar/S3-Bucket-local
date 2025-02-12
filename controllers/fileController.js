@@ -1,143 +1,15 @@
-// const fs = require('fs');
-// const path = require('path');
-// const { Upload } = require('@aws-sdk/lib-storage');
-// const { GetObjectCommand } = require('@aws-sdk/client-s3');
-// const s3 = require('../config/s3');
-
-// const BUCKET_NAME = process.env.S3_BUCKET;
-
-// // **Upload File to MinIO**
-// exports.uploadFile = async (req, res) => {
-//   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-//   try {
-//     const fileStream = fs.createReadStream(req.file.path);
-
-//     const upload = new Upload({
-//       client: s3,
-//       params: {
-//         Bucket: BUCKET_NAME,
-//         Key: req.file.originalname,
-//         Body: fileStream,
-//         ContentType: req.file.mimetype,
-//       },
-//     });
-
-//     await upload.done();
-//     fs.unlinkSync(req.file.path); // Delete temp file
-
-//     const fileUrl = `${process.env.S3_ENDPOINT}/${BUCKET_NAME}/${req.file.originalname}`;
-
-//     res.json({ message: 'File uploaded successfully', fileUrl });
-//   } catch (error) {
-//     console.error('Upload Error:', error);
-//     res.status(500).json({ error: error.message });
-//   }
-// };
-
-// // **Retrieve File from MinIO**
-// exports.getFile = async (req, res) => {
-//   const fileName = req.params.filename;
-
-//   try {
-//     const command = new GetObjectCommand({
-//       Bucket: BUCKET_NAME,
-//       Key: fileName,
-//     });
-
-//     const fileUrl = `${process.env.S3_ENDPOINT}/${BUCKET_NAME}/${fileName}`;
-//     res.json({ downloadUrl: fileUrl });
-//   } catch (error) {
-//     console.error('Retrieve Error:', error);
-//     res.status(500).json({ error: error.message });
-//   }
-// };
-
-
-// const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-// const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-// const s3 = require('../config/s3');
-
-// const BUCKET_NAME = process.env.S3_BUCKET;
-
-// // **Generate Signed URL for Upload**
-// exports.getUploadUrl = async (req, res) => {
-//   const fileName = req.query.filename;
-//   const contentType = req.query.contentType;
-
-//   if (!fileName || !contentType) {
-//     return res.status(400).json({ error: 'Filename and contentType are required' });
-//   }
-
-//   try {
-//     const command = new PutObjectCommand({
-//       Bucket: BUCKET_NAME,
-//       Key: fileName,
-//       ContentType: contentType,
-//     });
-
-//     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 }); // 5 minutes expiry
-//     res.json({ uploadUrl });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// };
-
-// // **Generate Signed URL for Download**
-// exports.getDownloadUrl = async (req, res) => {
-//   const fileName = req.params.filename;
-
-//   try {
-//     const command = new GetObjectCommand({
-//       Bucket: BUCKET_NAME,
-//       Key: fileName,
-//     });
-
-//     const downloadUrl = await getSignedUrl(s3, command, { expiresIn: 300 }); // 5 minutes expiry
-//     res.json({ downloadUrl });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// };
-
 
 const fs = require('fs');
 const multer = require('multer');
-const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { PutObjectCommand, GetObjectCommand,HeadObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const mime = require('mime-types');
 const s3 = require('../config/s3');
 
 const BUCKET_NAME = process.env.S3_BUCKET;
 
 // Configure Multer for file uploads
 const upload = multer({ dest: 'uploads/' });
-
-/**
- * @route   GET /api/upload-url
- * @desc    Generate a signed URL for uploading a file
- * @access  Private (Requires Authentication)
- */
-exports.getUploadUrl = async (req, res) => {
-  const fileName = req.query.filename;
-  const contentType = req.query.contentType;
-
-  if (!fileName || !contentType) {
-    return res.status(400).json({ error: 'Filename and contentType are required' });
-  }
-
-  try {
-    const command = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: fileName,
-      ContentType: contentType,
-    });
-
-    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 }); // 5 min expiry
-    res.json({ uploadUrl });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
 
 /**
  * @route   POST /api/upload
@@ -171,18 +43,27 @@ exports.uploadFile = async (req, res) => {
  * @desc    Generate a signed URL for downloading a file
  * @access  Private (Requires Authentication)
  */
-exports.getDownloadUrl = async (req, res) => {
+
+exports.getFileUrl = async (req, res) => {
   const fileName = req.params.filename;
+  const fileExtension = fileName.split('.').pop(); // Extract file extension
+  const contentType = mime.lookup(fileExtension) || 'application/octet-stream'; // Get MIME type
 
   try {
+    // Generate a signed URL for GET request (valid for 5 minutes)
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: fileName,
+      ResponseContentDisposition: 'inline', // Ensures file opens in browser if supported
+      ResponseContentType: contentType, // Set correct Content-Type
     });
 
-    const downloadUrl = await getSignedUrl(s3, command, { expiresIn: 300 }); // 5 min expiry
-    res.json({ downloadUrl });
+    const fileUrl = await getSignedUrl(s3, command, { expiresIn: 60 }); // 5 min expiry for download
+
+    res.json({ fileUrl });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+
+
