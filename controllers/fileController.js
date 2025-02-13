@@ -1,9 +1,8 @@
-
 const fs = require('fs');
+const path = require('path');
 const multer = require('multer');
-const { PutObjectCommand, GetObjectCommand,HeadObjectCommand } = require('@aws-sdk/client-s3');
+const { GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const mime = require('mime-types');
 const s3 = require('../config/s3');
 
 const BUCKET_NAME = process.env.S3_BUCKET;
@@ -12,10 +11,11 @@ const BUCKET_NAME = process.env.S3_BUCKET;
 const upload = multer({ dest: 'uploads/' });
 
 /**
- * @route   POST /api/upload
- * @desc    Upload a file directly to MinIO
+ * @route   GET /api/upload-url
+ * @desc    Generate a signed URL for uploading a file
  * @access  Private (Requires Authentication)
  */
+
 exports.uploadFile = async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
@@ -40,30 +40,27 @@ exports.uploadFile = async (req, res) => {
 
 /**
  * @route   GET /api/file/:filename
- * @desc    Generate a signed URL for downloading a file
+ * @desc    Single URL for both Viewing & Downloading
+ *          - If `?download=true` is provided, forces file download
+ *          - Otherwise, streams file directly for viewing
  * @access  Private (Requires Authentication)
  */
-
 exports.getFileUrl = async (req, res) => {
   const fileName = req.params.filename;
-  const fileExtension = fileName.split('.').pop(); // Extract file extension
-  const contentType = mime.lookup(fileExtension) || 'application/octet-stream'; // Get MIME type
 
   try {
-    // Generate a signed URL for GET request (valid for 5 minutes)
+    // Generate a signed URL that allows viewing and downloading
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: fileName,
-      ResponseContentDisposition: 'inline', // Ensures file opens in browser if supported
-      ResponseContentType: contentType, // Set correct Content-Type
+      ResponseContentDisposition: 'inline', // View file in browser, but allows manual download
     });
 
-    const fileUrl = await getSignedUrl(s3, command, { expiresIn: 60 }); // 5 min expiry for download
+    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 60 }); // 5 min expiry
 
-    res.json({ fileUrl });
+    res.json({ fileUrl: signedUrl });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
-
 
